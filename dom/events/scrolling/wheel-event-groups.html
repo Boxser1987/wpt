@@ -1,0 +1,142 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1">
+<script src="/resources/testharness.js"></script>
+<script src="/resources/testharnessreport.js"></script>
+<script src="/resources/testdriver.js"></script>
+<script src="/resources/testdriver-actions.js"></script>
+<script src="/resources/testdriver-vendor.js"></script>
+<script src="scroll_support.js"></script>
+<style>
+body {
+  margin: 0;
+  height: 200vh;
+}
+
+.spacer {
+  width: 100%;
+  height: 25px;
+}
+
+#scrollableDiv {
+  width: 100%;
+  height: 500px;
+  overflow: scroll;
+  background: yellow;
+}
+
+#innerDiv {
+  width: 100%;
+  height: 4000px;
+  background: red;
+}
+
+</style>
+<head>
+<body onload=runTest()>
+<div class="spacer">
+</div>
+<div id="scrollableDiv">
+  <div id="innerDiv">
+    <div id="firstSpacer" class="spacer" style="background: green">
+    </div>
+    <div id="secondSpacer" class="spacer" style="background: blue">
+    </div>
+  </div>
+</div>
+</body>
+
+<script>
+
+let scrollable_wheel_event = false;
+scrollableDiv.addEventListener("wheel", (e) => {
+  e.stopPropagation();
+  scrollable_wheel_event = true;
+});
+
+let inner_wheel_event = false;
+innerDiv.addEventListener("wheel", (e) => {
+  e.stopPropagation();
+  inner_wheel_event = true;
+});
+
+function runTest() {
+  promise_test(async (t) => {
+    // Start a wheel scroll above the scrollable child element, and
+    // scroll over the child element to ensure that wheel events
+    // part of this transaction have the root element as their target.
+    await new test_driver.Actions()
+      .addWheel("wheel1")
+      .scroll(40, 2, 0, 20)
+      .scroll(40, 2, 0, 100)
+      .pause(1)
+      .scroll(40, 2, 0, 50)
+      .pause(500)
+      .send();
+
+    assert_equals(inner_wheel_event, false, "Wheel event was not fired to child");
+    assert_equals(scrollable_wheel_event, false, "Wheel event was not fired to scrollable child");
+  }, 'Wheel events are grouped and are not sent to a child element');
+
+  promise_test(async (t) => {
+    document.scrollingElement.scrollTo({top: 0, lef: 0});
+    scrollable_wheel_event = false;
+    inner_wheel_event = false;
+
+    await waitForCompositorCommit();
+
+    // Scroll in the child and ensure that wheel events in the group are not
+    // directly fired to the scrollable element.
+    await new test_driver.Actions()
+      .addWheel("wheel1")
+      .scroll(40, 2, 0, 20, {origin: innerDiv})
+      .scroll(40, 2, 0, 100, {origin: innerDiv})
+      .pause(1)
+      .scroll(40, 2, 0, 50, {origin: innerDiv})
+      .pause(500)
+      .send();
+
+    assert_equals(inner_wheel_event, true, "Wheel event was fired to inner div");
+    assert_equals(scrollable_wheel_event, false, "Wheel event was not fired to scrollable child");
+  }, 'Wheel events are not bound to a scroll frame');
+
+  promise_test(async (t) => {
+    document.scrollingElement.scrollTo({top: 0, left: 0});
+    scrollableDiv.scrollTo({top: 0, left: 0});
+    scrollable_wheel_event = false;
+    inner_wheel_event = false;
+
+    await waitForCompositorCommit();
+
+    let first_spacer_wheel_event = false;
+    firstSpacer.addEventListener("wheel", (e) => {
+      e.stopPropagation();
+      first_spacer_wheel_event = true;
+    });
+
+    let second_spacer_wheel_event = false;
+    secondSpacer.addEventListener("wheel", (e) => {
+      e.stopPropagation();
+      second_spacer_wheel_event = true;
+    });
+
+    // Scroll past the boundary of the original element to ensure all events in
+    // group have the same target.
+    await new test_driver.Actions()
+      .addWheel("wheel1")
+      .scroll(40, 2, 0, 20, {origin: firstSpacer})
+      .scroll(40, 2, 0, 100, {origin: firstSpacer})
+      .pause(1)
+      .scroll(40, 2, 0, 50, {origin: firstSpacer})
+      .pause(500)
+      .send();
+
+    assert_equals(first_spacer_wheel_event, true, "Wheel event was fired to the first spacer");
+    assert_equals(second_spacer_wheel_event, false, "Wheel event should not be fired to the second spacer");
+    assert_equals(inner_wheel_event, false, "Wheel event should not be fired to inner div");
+    assert_equals(scrollable_wheel_event, false, "Wheel event was not fired to scrollable child");
+  }, 'Wheel event groups beyond the origin bound have the same target.');
+}
+</script>
+</html>
